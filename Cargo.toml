@@ -1,0 +1,6 @@
+[package]
+name = "recursive-type-system"
+version = "0.1.0"
+authors = ["schaeff <thibaut@schaeff.fr>"]
+
+[dependencies]
