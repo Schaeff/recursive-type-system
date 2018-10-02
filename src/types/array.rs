@@ -1,49 +1,71 @@
-use types::Type;
-use types::Variant;
 use std::fmt;
+use types::Variant;
+use FlatStatement;
+use Flatten;
+use LinComb;
+use Variable;
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Array<T: Type>(pub Box<T>);
+#[derive(Debug)]
+pub enum ArrayVariant<V: Variant> {
+    Value(Vec<V>),
+    Identifier(Variable),
+    FunctionCall(String, Vec<Box<Variant>>),
+}
 
-// Helper function to create an Array type
-impl<T: Type> Array<T> {
-    pub fn with(t: T) -> Self {
-        Array(Box::new(t))
+impl<V: Variant> ArrayVariant<V> {
+    pub fn value(elements: Vec<V>) -> ArrayVariant<V> {
+        assert_eq!(2, elements.len());
+        ArrayVariant::Value(elements)
     }
 }
 
-impl<T: Type> Type for Array<T> {
-    type Variant = ArrayVariant<T>;
+impl<V: Variant> Flatten for ArrayVariant<V> {
+    fn flatten(&self, flatten_statements: &mut Vec<FlatStatement>) -> Vec<LinComb> {
+        match *self {
+            ArrayVariant::Identifier(ref v) => vec![0, 1]
+                .iter()
+                .map(|n| {
+                    LinComb(vec![(
+                        1,
+                        Variable {
+                            name: format!("{}_{}", v.name, n),
+                        },
+                    )])
+                }).collect(),
+            ArrayVariant::Value(ref v) => v
+                .iter()
+                .map(|v| v.flatten(flatten_statements))
+                .flat_map(|x| x)
+                .collect(),
+            _ => unimplemented!(),
+        }
+    }
+}
+
+impl<V: Variant> Variant for ArrayVariant<V> {
     fn get_primitive_count(&self) -> usize {
-        2 * self.0.get_primitive_count()
+        2 * 42
     }
 }
 
-#[derive(Debug, Clone)]
-pub enum ArrayVariant<T: Type> {
-    Value(Vec<T::Variant>),
-    Identifier(String),
-}
-
-impl<T: Type> ArrayVariant<T> {
-	pub fn value(elements: Vec<T::Variant>) -> ArrayVariant<T> {
-		println!("SIZE {:?} ELEMENTS {:?}", 3, elements);
-		assert_eq!(2, elements.len());
-		ArrayVariant::Value(elements)
-	}
-}
-
-impl<T: Type> Variant<Array<T>> for ArrayVariant<T> {}
-
-impl<T: Type> fmt::Display for ArrayVariant<T> {
+impl<V: Variant> fmt::Display for ArrayVariant<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ArrayVariant::Identifier(ref id) => write!(f, "{}", id),
+            ArrayVariant::Identifier(ref id) => write!(f, "{:?}", id),
             ArrayVariant::Value(ref values) => write!(
                 f,
                 "[{}]",
                 values
                     .iter()
+                    .map(|e| format!("{}", e))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            ArrayVariant::FunctionCall(ref id, ref args) => write!(
+                f,
+                "{}({})",
+                id,
+                args.iter()
                     .map(|e| format!("{}", e))
                     .collect::<Vec<_>>()
                     .join(", ")

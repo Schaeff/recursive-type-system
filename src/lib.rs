@@ -6,198 +6,282 @@
 
 mod types;
 
-use types::*;
-
-use std::default::Default;
 use std::fmt;
+use types::*;
 
 ///////////////////////////////////////////////////////////////////
 
-// we assume that a FlatExpression is a number for now, which works for constants
-#[derive(PartialEq, Debug)]
-pub struct FlatExpression(usize);
+#[derive(Debug, PartialEq, Clone)]
+pub struct LinComb(Vec<(usize, Variable)>);
 
-pub trait Flatten: Sized {
-    fn flatten(self) -> Vec<FlatExpression>;
+#[derive(Debug, PartialEq)]
+pub enum FlatStatement {
+    Directive(Vec<Variable>),
+    Assertion(LinComb, LinComb, LinComb),
+    Return(Vec<Variable>),
 }
 
-#[derive(Debug, Clone)]
-struct Expression<T: Type> {
-    _type: T,
-    variant: T::Variant,
+#[derive(Debug, PartialEq)]
+pub struct FlatFunction {
+    statements: Vec<FlatStatement>,
 }
 
-impl<T: Type + Default> Expression<T> {
-    // used for primitive types for which T::new() is not ambiguous
-    fn new(v: T::Variant) -> Self {
-        Expression::with(T::default(), v)
-    }
+pub trait Flatten {
+    fn flatten(&self, flattened_statements: &mut Vec<FlatStatement>) -> Vec<LinComb>;
 }
 
-impl<T: Type> Expression<T> {
-    // used for complex types for which we need to specify more information
-    fn with(t: T, v: T::Variant) -> Self {
-        Expression {
-            _type: t,
-            variant: v,
-        }
-    }
-}
-
-impl Expression<FieldElement> {
-
-    fn field_element(v: FieldElementVariant) -> Self {
-        Self::new(v)
-    }
-
-    fn add(e1: FieldElementVariant, e2: FieldElementVariant) -> Self {
-        Self::field_element(FieldElementVariant::Add(box e1, box e2))
-    }
-}
-
-impl Expression<Boolean> {
-    fn _true() -> Self {
-        Expression::new(BooleanVariant::Value(true))
-    }
-
-    fn _false() -> Self {
-        Expression::new(BooleanVariant::Value(false))
-    }
-}
-
-// t: the type stored in the array
-// v: the elements stored in the array
-impl<T: Type> Expression<Array<T>> {
-    fn array_with_type(t: T, v: Vec<T::Variant>) -> Self {
-        Expression::with(Array::with(t), ArrayVariant::value(v))
-    }
-}
-
-impl<T: Type + Default> Expression<Array<T>> {
-    fn array(v: Vec<T::Variant>) -> Self {
-        Self::array_with_type(T::default(), v)
-    }
-}
-
-// implement flattening for each type
-impl Flatten for Expression<FieldElement> {
-    fn flatten(self) -> Vec<FlatExpression> {
-        vec![FlatExpression(1)]
-    }
-}
-
-impl Flatten for Expression<Boolean> {
-    fn flatten(self) -> Vec<FlatExpression> {
-        match self.variant {
-            BooleanVariant::Value(b) => {
-                if { b } {
-                    vec![FlatExpression(1)]
-                } else {
-                    vec![FlatExpression(0)]
-                }
-            }
-            _ => unimplemented!(),
-        }
-    }
-}
-
-#[derive(Debug)]
-struct Variable<T: Type> {
-    _type: T,
+#[derive(Debug, PartialEq, Clone)]
+pub struct Variable {
     name: String,
 }
 
 #[derive(Debug)]
-enum Statement<T: Type> {
-    Definition(Variable<T>, Expression<T>),
+enum Statement {
+    Definition(Variable, Box<Variant>),
+    Return(Vec<Box<Variant>>),
+}
+
+impl Statement {
+    fn flatten(self, flattened_statements: &mut Vec<FlatStatement>) {
+        match self {
+            Statement::Definition(v, e) => {
+                let e = e.flatten(flattened_statements);
+
+                flattened_statements.push(FlatStatement::Directive(
+                    e.iter()
+                        .enumerate()
+                        .map(|(index, _)| Variable {
+                            name: format!("{}_{}", v.name, index),
+                        }).collect(),
+                ));
+                for (index, e) in e.iter().enumerate() {
+                    flattened_statements.push(FlatStatement::Assertion(
+                        LinComb(vec![(
+                            1,
+                            Variable {
+                                name: format!("{}_{}", v.name, index),
+                            },
+                        )]),
+                        LinComb(vec![(
+                            1,
+                            Variable {
+                                name: String::from("~one"),
+                            },
+                        )]),
+                        e.clone(),
+                    ));
+                }
+            }
+            Statement::Return(e) => flattened_statements.push(FlatStatement::Return(vec![])),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Function {
+    statements: Vec<Statement>,
+}
+
+impl Function {
+    fn flatten(self) -> FlatFunction {
+        let mut flattened_statements = vec![];
+        for s in self.statements {
+            s.flatten(&mut flattened_statements)
+        }
+
+        FlatFunction {
+            statements: flattened_statements,
+        }
+    }
 }
 
 #[cfg(test)]
 mod test {
-	use super::*;
+    use super::*;
 
-	#[test]
-	fn create_nested_array_type() {
-	    let arr_of_arr = Array(Box::new(Array(Box::new(FieldElement()))));
-	    assert_eq!(arr_of_arr.get_primitive_count(), 2 * 2);
-	}
-
-	#[test]
-	fn array_expression() {
-		let e0: Expression<Array<FieldElement>> = Expression::array(vec![
-	        FieldElementVariant::Value(0),
-	        FieldElementVariant::Value(1),
-	    ]);
-	    assert_eq!(e0._type, Array(box FieldElement()));
-	}
-
-	#[test]
-	fn nested_array_expression() {
-		let e1 = Expression::array_with_type(
-	        Array(Box::new(FieldElement())),
-	        vec![
-	            ArrayVariant::value(vec![
-	                FieldElementVariant::Value(0),
-	                FieldElementVariant::Value(1),
-	            ]),
-	            ArrayVariant::value(vec![
-	                FieldElementVariant::Value(0),
-	                FieldElementVariant::Value(1),
-	            ]),
-	        ],
-	    );
-	    println!("{}", e1);
-	    assert_eq!(e1._type, Array(box Array(box FieldElement())));
-	}
-
-	#[test]
-	fn definition() {
-	    let _s = Statement::Definition(
-	        Variable {
-	            _type: Boolean(),
-	            name: String::from("a"),
-	        },
-	        Expression::_true(),
-	    );
-	}
-
-	#[test]
-	#[should_panic]
-	fn wrong_count_in_def() {
-	    let _e2 = Expression::array_with_type(
-	        Array(Box::new(FieldElement())), // here 3 elements
-	        vec![
-	            ArrayVariant::value(vec![
-	                FieldElementVariant::Value(0), // /!\ here 1 element /!\
-	            ]),
-	            ArrayVariant::value(vec![
-	                FieldElementVariant::Value(0), // here 3 elements
-	                FieldElementVariant::Value(1),
-	            ]),
-	        ],
-	    ); // should panic
-	}
-
-	#[test]
-	fn flatten_primitive_types() {
-		// we can flatten expressions
-	    let _42_plus_42 = Expression::add(FieldElementVariant::Value(42), FieldElementVariant::Value(42));
-	    assert_eq!(_42_plus_42.flatten(), vec![FlatExpression(1)]);
-	    let _true = Expression::_true();
-	    assert_eq!(_true.flatten(), vec![FlatExpression(1)]);
-	    let _false = Expression::_false();
-	    assert_eq!(_false.flatten(), vec![FlatExpression(0)]);
-	}
-}
-
-pub fn main() {
-
-}
-
-impl<T: Type> fmt::Display for Expression<T> {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.variant)
+    #[test]
+    fn array_expression() {
+        let v0 = ArrayVariant::value(vec![
+            FieldElementVariant::Value(0),
+            FieldElementVariant::Value(1),
+        ]);
+        println!("{}", v0);
     }
+
+    #[test]
+    fn nested_array_expression() {
+        let v1 = ArrayVariant::value(vec![
+            ArrayVariant::value(vec![
+                FieldElementVariant::Value(0),
+                FieldElementVariant::Value(1),
+            ]),
+            ArrayVariant::value(vec![
+                FieldElementVariant::Value(0),
+                FieldElementVariant::Value(1),
+            ]),
+        ]);
+        println!("{}", v1);
+    }
+
+    #[test]
+    fn definition() {
+        let _s = Statement::Definition(
+            Variable {
+                name: String::from("a"),
+            },
+            box BooleanVariant::_true(),
+        );
+    }
+
+    #[test]
+    fn return_statement() {
+        let _r: Statement = Statement::Return(vec![
+            box BooleanVariant::Value(true),
+            box FieldElementVariant::Value(1),
+        ]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn wrong_count_in_def() {
+        let _e2 = ArrayVariant::value(vec![
+            ArrayVariant::value(vec![
+                FieldElementVariant::Value(0), // /!\ here 1 element /!\
+            ]),
+            ArrayVariant::value(vec![
+                FieldElementVariant::Value(0), // here 3 elements
+                FieldElementVariant::Value(1),
+            ]),
+        ]); // should panic
+    }
+
+    #[test]
+    fn flatten_function() {
+        let f = Function {
+            statements: vec![
+                Statement::Definition(
+                    Variable {
+                        name: String::from("a"),
+                    },
+                    box FieldElementVariant::Value(42),
+                ),
+                Statement::Definition(
+                    Variable {
+                        name: String::from("b"),
+                    },
+                    box FieldElementVariant::Add(
+                        box FieldElementVariant::Identifier(Variable {
+                            name: String::from("a"),
+                        }),
+                        box FieldElementVariant::Value(3),
+                    ),
+                ),
+                Statement::Return(vec![box FieldElementVariant::Add(
+                    box FieldElementVariant::Identifier(Variable {
+                        name: String::from("b"),
+                    }),
+                    box FieldElementVariant::Value(1),
+                )]),
+            ],
+        };
+
+        println!("{:#?}", f);
+
+        let flattened = f.flatten();
+
+        println!("{:#?}", flattened);
+
+        assert_eq!(flattened, FlatFunction { statements: vec![] });
+    }
+
+    #[test]
+    fn flatten_definition() {
+        let f2 = Function {
+            statements: vec![Statement::Definition(
+                Variable {
+                    name: String::from("a"),
+                },
+                box ArrayVariant::Value(vec![
+                    FieldElementVariant::Value(42),
+                    FieldElementVariant::Value(55),
+                ]),
+            )],
+        };
+
+        let flattened = f2.flatten();
+
+        println!("{:#?}", flattened);
+
+        assert_eq!(
+            flattened,
+            FlatFunction {
+                statements: vec![
+                    FlatStatement::Directive(vec![
+                        Variable {
+                            name: String::from("a_0")
+                        },
+                        Variable {
+                            name: String::from("a_1")
+                        }
+                    ]),
+                    FlatStatement::Assertion(
+                        LinComb(vec![(
+                            1,
+                            Variable {
+                                name: String::from("a_0")
+                            }
+                        )]),
+                        LinComb(vec![(
+                            1,
+                            Variable {
+                                name: String::from("~one")
+                            }
+                        )]),
+                        LinComb(vec![(
+                            42,
+                            Variable {
+                                name: String::from("~one")
+                            }
+                        )]),
+                    ),
+                    FlatStatement::Assertion(
+                        LinComb(vec![(
+                            1,
+                            Variable {
+                                name: String::from("a_1")
+                            }
+                        )]),
+                        LinComb(vec![(
+                            1,
+                            Variable {
+                                name: String::from("~one")
+                            }
+                        )]),
+                        LinComb(vec![(
+                            55,
+                            Variable {
+                                name: String::from("~one")
+                            }
+                        )]),
+                    )
+                ]
+            }
+        );
+    }
+
+    // #[test]
+    // fn flatten_primitive_types() {
+    //     // we can flatten expressions
+    //     let _42_plus_42 = FieldElementVariant::Add(
+    //         box FieldElementVariant::Value(42),
+    //         box FieldElementVariant::Value(42),
+    //     );
+    //     assert_eq!(_42_plus_42.flatten(), vec![LinComb(vec![])]);
+    //     let _true = BooleanVariant::_true();
+    //     assert_eq!(_true.flatten(), vec![LinComb(vec![])]);
+    //     let _false = BooleanVariant::_false();
+    //     assert_eq!(_false.flatten(), vec![LinComb(vec![])]);
+    // }
 }
 
-
+pub fn main() {}
