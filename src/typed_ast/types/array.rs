@@ -1,38 +1,33 @@
+use flat_ast::*;
 use std::fmt;
-use types::Variant;
-use FlatStatement;
-use Flatten;
-use LinComb;
-use Variable;
+use typed_ast::{Expression, Variable};
 
 #[derive(Debug)]
-pub enum ArrayVariant<V: Variant> {
+pub enum Array<V: Expression> {
     Value(Vec<V>),
     Identifier(Variable),
-    FunctionCall(String, Vec<Box<Variant>>),
+    FunctionCall(String, Vec<Box<Expression>>),
 }
 
-impl<V: Variant> ArrayVariant<V> {
-    pub fn value(elements: Vec<V>) -> ArrayVariant<V> {
+impl<V: Expression> Array<V> {
+    pub fn value(elements: Vec<V>) -> Array<V> {
         assert_eq!(2, elements.len());
-        ArrayVariant::Value(elements)
+        Array::Value(elements)
     }
 }
 
-impl<V: Variant> Flatten for ArrayVariant<V> {
+impl<V: Expression> Expression for Array<V> {
     fn flatten(&self, flatten_statements: &mut Vec<FlatStatement>) -> Vec<LinComb> {
         match *self {
-            ArrayVariant::Identifier(ref v) => vec![0, 1]
+            Array::Identifier(ref v) => vec![0, 1]
                 .iter()
                 .map(|n| {
                     LinComb(vec![(
                         1,
-                        Variable {
-                            name: format!("{}_{}", v.name, n),
-                        },
+                        FlatVariable::with_name(format!("{}_{}", v.name(), n)),
                     )])
                 }).collect(),
-            ArrayVariant::Value(ref v) => v
+            Array::Value(ref v) => v
                 .iter()
                 .map(|v| v.flatten(flatten_statements))
                 .flat_map(|x| x)
@@ -42,17 +37,11 @@ impl<V: Variant> Flatten for ArrayVariant<V> {
     }
 }
 
-impl<V: Variant> Variant for ArrayVariant<V> {
-    fn get_primitive_count(&self) -> usize {
-        2 * 42
-    }
-}
-
-impl<V: Variant> fmt::Display for ArrayVariant<V> {
+impl<V: Expression> fmt::Display for Array<V> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            ArrayVariant::Identifier(ref id) => write!(f, "{:?}", id),
-            ArrayVariant::Value(ref values) => write!(
+            Array::Identifier(ref id) => write!(f, "{:?}", id),
+            Array::Value(ref values) => write!(
                 f,
                 "[{}]",
                 values
@@ -61,7 +50,7 @@ impl<V: Variant> fmt::Display for ArrayVariant<V> {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            ArrayVariant::FunctionCall(ref id, ref args) => write!(
+            Array::FunctionCall(ref id, ref args) => write!(
                 f,
                 "{}({})",
                 id,
