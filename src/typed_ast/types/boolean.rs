@@ -14,7 +14,7 @@ impl Expression for Boolean {
     fn flatten(&self, flatten_statements: &mut Vec<FlatStatement>) -> Vec<LinComb> {
         match *self {
             Boolean::Value(b) => {
-                if { b } {
+                if b {
                     vec![LinComb(vec![(1, FlatVariable::one())])]
                 } else {
                     vec![LinComb(vec![(0, FlatVariable::one())])]

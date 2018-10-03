@@ -1,14 +1,12 @@
-// FooType implements Type
-// FooExpression implements Expression<FooType>
-// FooExpression carries FooType and FooExpression
-
 mod types;
+
 use self::types::*;
 use flat_ast::*;
 use std::fmt::{Debug, Display};
 
 ///////////////////////////////////////////////////////////////////
 
+// A trait for all expressions to implement
 pub trait Expression: Debug + Display {
     fn flatten(&self, flattened_statements: &mut Vec<FlatStatement>) -> Vec<LinComb>;
 }
@@ -71,6 +69,7 @@ struct Function {
 impl Function {
     fn flatten(self) -> FlatFunction {
         let mut flattened_statements = vec![];
+
         for s in self.statements {
             s.flatten(&mut flattened_statements)
         }
@@ -331,7 +330,7 @@ mod test {
 
     #[test]
     fn flatten_structure_definition() {
-        // 
+        //
         // {foo: field, bar: bool} a = {foo: 42, bar: true}
         // ->
         // # a_0, a_1 := ... // this will be a directive, could also be multiple..
@@ -341,10 +340,7 @@ mod test {
         let f2 = Function {
             statements: vec![Statement::Definition(
                 Variable::with_name("a"),
-                box Structure::Value(vec![
-                    box FieldElement::Value(42), 
-                    box Boolean::Value(true),
-                ])
+                box Structure::Value(vec![box FieldElement::Value(42), box Boolean::Value(true)]),
             )],
         };
 
@@ -375,7 +371,7 @@ mod test {
 
     #[test]
     fn flatten_recursive_structure_definition() {
-        // 
+        //
         // {foo: { baz: field, qux: field[2] }, bar: bool} a = {foo: { baz: 42, qux: [21, 21] }, bar: true}
         // ->
         // # a_0, a_1, a_3, a_4 := ... // this will be a directive, could also be multiple..
@@ -390,9 +386,10 @@ mod test {
                 box Structure::Value(vec![
                     box Structure::Value(vec![
                         box FieldElement::Value(42),
-                        box Array::Value(vec![FieldElement::Value(21), FieldElement::Value(21)])]),
+                        box Array::Value(vec![FieldElement::Value(21), FieldElement::Value(21)]),
+                    ]),
                     box Boolean::Value(true),
-                ])
+                ]),
             )],
         };
 
@@ -419,12 +416,12 @@ mod test {
                     LinComb(vec![(1, FlatVariable::one(),)]),
                     LinComb(vec![(21, FlatVariable::one(),)]),
                 ),
-                    FlatStatement::Assertion(
+                FlatStatement::Assertion(
                     LinComb(vec![(1, FlatVariable::with_name("a_2"),)]),
                     LinComb(vec![(1, FlatVariable::one(),)]),
                     LinComb(vec![(21, FlatVariable::one(),)]),
                 ),
-                    FlatStatement::Assertion(
+                FlatStatement::Assertion(
                     LinComb(vec![(1, FlatVariable::with_name("a_3"),)]),
                     LinComb(vec![(1, FlatVariable::one(),)]),
                     LinComb(vec![(1, FlatVariable::one(),)]),
@@ -432,20 +429,4 @@ mod test {
             ])
         );
     }
-
-    // #[test]
-    // fn flatten_primitive_types() {
-    //     // we can flatten expressions
-    //     let _42_plus_42 = FieldElement::Add(
-    //         box FieldElement::Value(42),
-    //         box FieldElement::Value(42),
-    //     );
-    //     assert_eq!(_42_plus_42.flatten(), vec![LinComb(vec![])]);
-    //     let _true = Boolean::_true();
-    //     assert_eq!(_true.flatten(), vec![LinComb(vec![])]);
-    //     let _false = Boolean::_false();
-    //     assert_eq!(_false.flatten(), vec![LinComb(vec![])]);
-    // }
 }
-
-pub fn main() {}
